@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "B站视频总结助手",
+  "description": "一键提取 B 站视频字幕脚本，AI 生成总结，长视频 3 分钟看懂",
+  "version": "0.2.0",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["https://*/*"],
+  "background": {
+    "service_worker": "background/service.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.bilibili.com/video/*"],
+      "js": ["content/inject.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.bilibili.com/video/*"],
+      "js": ["content/bili.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": []
+}
