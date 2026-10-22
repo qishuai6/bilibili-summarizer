@@ -12,6 +12,8 @@
   <img src="docs/screenshots/panel-dark.png" width="360" alt="深色模式" />
 </p>
 
+**[⬇️ 下载安装包（zip）](https://github.com/qishuai6/bilibili-summarizer/releases/latest) · 安装只花一分钟，见下方「安装」章节**
+
 </div>
 
 ---
@@ -53,12 +55,51 @@
 
 ## 安装
 
-> 未上架 Chrome 商店，用开发者模式加载（一次性配置，之后自动更新本地代码）：
+> 未上架 Chrome 商店，用开发者模式加载。一次性配置，之后不用再管。
 
-1. 下载本仓库（`git clone` 或 Download ZIP 解压），放到一个不会删的目录
-2. Chrome 打开 `chrome://extensions/`，右上角打开「开发者模式」
-3. 点「加载已解压的扩展程序」，选中本目录（有 `manifest.json` 的这一层）
-4. 打开任意 B 站视频页，右侧出现「✦ AI 总结」悬浮按钮
+### 方式一：下载安装包（推荐，不需要会 git）
+
+1. 前往 [**Releases 下载页**](https://github.com/qishuai6/bilibili-summarizer/releases/latest)，下载 `bilibili-summarizer-vX.X.X.zip`
+2. 解压 zip，会得到一个 `bilibili-summarizer` 文件夹。**把它放到一个不会删除、不会移动的目录**（比如在「文档」里专门建个文件夹放扩展）。
+   ⚠️ 这一步很重要：Chrome 每次启动都从这个目录读取扩展，装完就把文件夹删了/移了，扩展会失效。
+3. Chrome 地址栏输入 `chrome://extensions/` 回车，打开右上角的「**开发者模式**」开关
+4. 点左上角「**加载已解压的扩展程序**」，选中解压出来的 `bilibili-summarizer` 文件夹（标准是：这层文件夹里能直接看到 `manifest.json`）
+5. 打开任意 B 站**视频播放页**（地址长这样：`www.bilibili.com/video/BV…`），右侧出现「✦ AI 总结」悬浮按钮，即安装成功
+6. 按下面的「配置 AI 接口」填一次 API Key，就能用了
+
+### 方式二：git clone（想跟进代码更新）
+
+```bash
+git clone https://github.com/qishuai6/bilibili-summarizer.git
+```
+
+然后同方式一的第 3~6 步。以后有更新：`git pull` 拉最新代码，再到 `chrome://extensions/` 里点该扩展卡片上的「↻ 重新加载」，刷新 B 站页面即可。
+
+### 常见问题
+
+<details>
+<summary><b>装完了，视频页上看不到「✦ AI 总结」按钮？</b></summary>
+
+① 确认当前在**视频播放页**（地址含 `/video/`），首页和搜索页不会显示，必要时刷新一次页面；② 点浏览器右上角拼图图标 🧩，确认「B站视频总结助手」处于已启用状态。
+</details>
+
+<details>
+<summary><b>加载文件夹时报错「Manifest file is missing」？</b></summary>
+
+选错层了。要选中**里面直接能看到 `manifest.json`** 的那一层文件夹（如果解压后外面还套了一层同名文件夹，选里面那层）。
+</details>
+
+<details>
+<summary><b>更新到新版本后改动不生效？</b></summary>
+
+到 `chrome://extensions/` 点该扩展的「↻ 重新加载」，再刷新 B 站页面。
+</details>
+
+<details>
+<summary><b>点「生成总结」没反应 / 报 401？</b></summary>
+
+多半是 API Key 没配或填错了。面板 →「设置」tab → 选预设、填 Key → 保存。Key 在对应平台的开放平台控制台申请（智谱有免费模型 `glm-4-flash`）。
+</details>
 
 ## 配置 AI 接口（首次使用必做）
 
