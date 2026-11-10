@@ -10,11 +10,14 @@
   };
 
   const waitState = async () => {
+    let noVideo = 0; // 状态已就绪却始终没有 videoData（如「稍后再看」页），提前放弃让上层走接口
     for (let i = 0; i < 20; i++) {
-      if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.videoData) return window.__INITIAL_STATE__;
+      const s = window.__INITIAL_STATE__;
+      if (s && s.videoData) return s;
+      if (s && ++noVideo >= 4) break;
       await new Promise(r => setTimeout(r, 300));
     }
-    throw new Error('页面数据未就绪，刷新一下再试');
+    throw new Error('页面数据未就绪');
   };
 
   window.addEventListener('message', async e => {

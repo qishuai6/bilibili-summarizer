@@ -110,11 +110,29 @@
     return Number.isFinite(p) && p > 0 ? p : 1;
   };
 
+  // 从当前地址解析视频号：优先路径里的 /video/BVxxx，
+  // 「稍后再看」等播放页没有路径 BV，改认 URL 参数 ?bvid= 或 ?aid=
+  function pickVid() {
+    const m = location.pathname.match(/\/(?:video|medialist\/play\/[^\/]+)\/(BV[0-9A-Za-z]+)/);
+    if (m) return { bvid: m[1] };
+    const q = new URLSearchParams(location.search);
+    const bv = q.get('bvid');
+    if (bv && /^BV[0-9A-Za-z]+$/.test(bv)) return { bvid: bv };
+    const aid = parseInt(q.get('aid'), 10);
+    if (Number.isFinite(aid) && aid > 0) return { aid };
+    return null;
+  }
+
   async function getVideoInfo() {
-    try { return await callInject('video-info'); } catch (_) { /* 回退走后台接口 */ }
-    const m = location.pathname.match(/\/video\/(BV[0-9A-Za-z]+)/);
-    if (!m) throw new Error('没识别到视频 BV 号');
-    const j = await bgJson('https://api.bilibili.com/x/web-interface/view?bvid=' + m[1], true);
+    const urlVid = pickVid();
+    try {
+      const info = await callInject('video-info');
+      // 页面数据可能是 SPA 切换前的旧视频，与地址对不上就弃用，走接口
+      const same = !urlVid || (urlVid.bvid ? info.bvid === urlVid.bvid : info.aid === urlVid.aid);
+      if (same) return info;
+    } catch (_) { /* 回退走后台接口 */ }
+    if (!urlVid) throw new Error('没识别到视频 BV 号（当前页面可能不是播放页）');
+    const j = await bgJson('https://api.bilibili.com/x/web-interface/view?' + (urlVid.bvid ? 'bvid=' + urlVid.bvid : 'aid=' + urlVid.aid), true);
     if (j.code !== 0) throw new Error('拿视频信息失败：' + (j.message || j.code));
     const d = j.data, p = pageOf();
     const page = (d.pages || []).find(pg => pg.page === p);
