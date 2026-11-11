@@ -144,16 +144,97 @@
     };
   }
 
+  // ---------------- WBI 签名（B 站 2023 起风控：player/wbi/v2 不签名返回空字幕 / -352）----------------
+  // 算法来自 bilibili-API-collect：nav 拿 img/sub key → 混淆表取 mixinKey → 参数排序 + wts 后 MD5
+  const MD5 = (() => {
+    // RFC 1321 标准结构实现（已用测试向量+crypto 对照验证），MV3 无内置 MD5 只能自带
+    const S = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+               5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
+               4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+               6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+    const K = new Int32Array(64);
+    for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296);
+    const rotl = (x, c) => (x << c) | (x >>> (32 - c));
+    const add = (x, y) => {
+      const l = (x & 0xFFFF) + (y & 0xFFFF);
+      const m = (x >> 16) + (y >> 16) + (l >> 16);
+      return (m << 16) | (l & 0xFFFF);
+    };
+    return str => {
+      const msg = [];
+      for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        if (c < 0x80) msg.push(c);
+        else if (c < 0x800) msg.push(0xC0 | (c >> 6), 0x80 | (c & 63));
+        else msg.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+      }
+      const bitLen = msg.length * 8;
+      msg.push(0x80);
+      while (msg.length % 64 !== 56) msg.push(0);
+      msg.push(bitLen & 0xFF, (bitLen >>> 8) & 0xFF, (bitLen >>> 16) & 0xFF, (bitLen >>> 24) & 0xFF, 0, 0, 0, 0);
+
+      let a0 = 1732584193, b0 = -271733879, c0 = -1732584194, d0 = 271733878;
+      for (let off = 0; off < msg.length; off += 64) {
+        const M = new Int32Array(16);
+        for (let i = 0; i < 16; i++)
+          M[i] = msg[off + i * 4] | (msg[off + i * 4 + 1] << 8) | (msg[off + i * 4 + 2] << 16) | (msg[off + i * 4 + 3] << 24);
+        let A = a0, B = b0, C = c0, D = d0;
+        for (let i = 0; i < 64; i++) {
+          let F, g;
+          if (i < 16)      { F = (B & C) | (~B & D); g = i; }
+          else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+          else if (i < 48) { F = B ^ C ^ D;          g = (3 * i + 5) % 16; }
+          else             { F = C ^ (B | ~D);       g = (7 * i) % 16; }
+          F = add(add(add(F, A), K[i]), M[g]);
+          A = D; D = C; C = B;
+          B = add(B, rotl(F, S[i]));
+        }
+        a0 = add(a0, A); b0 = add(b0, B); c0 = add(c0, C); d0 = add(d0, D);
+      }
+      const hex = v => {
+        let s = '';
+        for (let i = 0; i < 4; i++) s += ((v >>> (i * 8)) & 0xFF).toString(16).padStart(2, '0');
+        return s;
+      };
+      return hex(a0) + hex(b0) + hex(c0) + hex(d0);
+    };
+  })();
+
+  let wbiKeys = null, wbiKeysAt = 0;
+  async function getWbiKeys() {
+    if (wbiKeys && Date.now() - wbiKeysAt < 3600e3) return wbiKeys;
+    const j = await bgJson('https://api.bilibili.com/x/web-interface/nav', true);
+    const w = (j && j.data && j.data.wbi_img) || {};
+    const pick = u => ((u || '').match(/([0-9a-f]+)\.png$/) || [])[1] || '';
+    const keys = { img: pick(w.img_url), sub: pick(w.sub_url) };
+    if (!keys.img || !keys.sub) throw new Error('wbi key 获取失败');
+    wbiKeys = keys; wbiKeysAt = Date.now();
+    return keys;
+  }
+
+  async function wbiUrl(path, params) {
+    const { img, sub } = await getWbiKeys();
+    const raw = img + sub;
+    const mixin = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52]
+      .map(i => raw[i]).join('').slice(0, 32);
+    const q = { ...params, wts: Math.floor(Date.now() / 1000) };
+    const esc = v => encodeURIComponent(String(v)).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+    const qs = Object.keys(q).sort().map(k => k + '=' + esc(q[k])).join('&');
+    return 'https://api.bilibili.com' + path + '?' + qs + '&w_rid=' + MD5(qs + mixin);
+  }
+
   async function getSubtitleList(info) {
-    const api = 'https://api.bilibili.com/x/player/wbi/v2?bvid=' + info.bvid + '&cid=' + info.cid;
     let subs = [];
+    // 首选：带 wbi 签名请求（不签名常返回空字幕 / -352）
     try {
+      const api = await wbiUrl('/x/player/wbi/v2', { bvid: info.bvid, cid: info.cid });
       const j = await bgJson(api, true);
       subs = (j && j.data && j.data.subtitle && j.data.subtitle.subtitles) || [];
     } catch (_) { /* 降级到页面身份 */ }
+    // 降级：以页面身份（同源带 cookie）请求，页面环境下 B 站不严格校验签名
     if (!subs.length) {
       try {
-        const j = JSON.parse(await injectJson(api));
+        const j = JSON.parse(await injectJson('https://api.bilibili.com/x/player/wbi/v2?bvid=' + info.bvid + '&cid=' + info.cid));
         subs = (j && j.data && j.data.subtitle && j.data.subtitle.subtitles) || [];
       } catch (_) { /* 两路都拿不到 */ }
     }
@@ -171,6 +252,7 @@
   }
 
   async function fetchSubtitleBody(sub) {
+    if (sub.__body) return sub.__body; // AI 直出接口已带回内容，无需再下载
     let url = sub.subtitle_url || '';
     if (url.startsWith('//')) url = 'https:' + url;
     if (!url) throw new Error('字幕地址为空');
@@ -182,15 +264,16 @@
     return body;
   }
 
-  // 逐条字幕合并成段落：45 秒或 90 字一段，段首带时间戳
-  function buildSegments(body) {
+  // 逐条字幕合并成段落：45 秒或若干字一段（中文 90 字 / 英文 300 字符），段首带时间戳
+  function buildSegments(body, lan) {
+    const maxLen = /^en/i.test(lan || '') ? 300 : 90;
     const segs = [];
     let cur = null;
     for (const line of body) {
       if (!line || !line.content) continue;
       if (!cur) cur = { start: line.from, text: '' };
       cur.text += line.content;
-      if (line.to - cur.start > 45 || cur.text.length > 90) { segs.push(cur); cur = null; }
+      if (line.to - cur.start > 45 || cur.text.length > maxLen) { segs.push(cur); cur = null; }
     }
     if (cur) segs.push(cur);
     return segs;
@@ -472,12 +555,19 @@
       const subs = await getSubtitleList(info);
       const sub = pickSubtitle(subs);
       if (!sub) {
-        scriptErr('没有找到这个视频的字幕。AI 字幕需要登录 B 站账号后才有；纯画面 / 音乐类视频可能没有字幕。');
+        let hint = '没有找到这个视频的字幕。';
+        try {
+          const nav = await bgJson('https://api.bilibili.com/x/web-interface/nav', true);
+          hint = nav && nav.data && nav.data.isLogin
+            ? '这个视频没有可用字幕：AI 字幕只覆盖部分视频，纯画面 / 音乐类视频没有字幕。'
+            : '当前浏览器没登录 B 站——AI 字幕需要登录后才会生成。登录后刷新页面再试。';
+        } catch (_) { /* 登录态也查不到就给通用提示 */ }
+        scriptErr(hint);
         return;
       }
       state.lanDoc = sub.lan_doc || sub.lan || '字幕';
       const body = await fetchSubtitleBody(sub);
-      state.segs = buildSegments(body);
+      state.segs = buildSegments(body, sub.lan);
       state.transcript = state.segs.map(s => '[' + fmt(s.start) + '] ' + s.text).join('\n');
 
       els.meta.textContent = state.lanDoc + ' · ' + state.segs.length + ' 段';
